@@ -1,6 +1,153 @@
 Rough Code:
 
+import requests
+import operator
+from typing import TypedDict, Annotated, Sequence
 
+from langchain_community.chat_models import ChatOllama
+from langchain_core.messages import BaseMessage, HumanMessage
+from langchain.tools import tool
+from langgraph.graph import StateGraph, END
+from langgraph.prebuilt import ToolExecutor
+
+# --- 1. The Custom Proxied LLM Class (Unchanged) ---
+# This class is already compatible with LangGraph because it inherits correctly.
+
+class ProxiedChatOllama(ChatOllama):
+    """
+    Custom ChatOllama class for proxy support and disabled SSL verification.
+    Fully compatible with LangChain expressions and LangGraph agents.
+    """
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # IMPORTANT: Replace with your actual proxy details
+        self.proxies = {"http": "http://your-proxy-url:port", "https": "https://your-proxy-url:port"}
+        self.verify = False
+
+    @property
+    def _create_client(self):
+        """Create the httpx-compatible requests client."""
+        session = requests.Session()
+        session.proxies = self.proxies
+        session.verify = self.verify
+        return session
+
+# --- 2. Define Tools and the Tool Executor ---
+# For this example, we'll create a simple "search" tool.
+
+@tool
+def search_tool(query: str) -> str:
+    """Searches for information on a given topic and returns a one-sentence summary."""
+    print(f"--- Calling Search Tool with query: '{query}' ---")
+    # In a real scenario, this would call a search API.
+    # We will simulate a result for demonstration.
+    if "langgraph" in query.lower():
+        return "LangGraph is a library for building stateful, multi-actor applications with LLMs."
+    return "This is a simulated search result."
+
+# The ToolExecutor is responsible for calling the correct tool with the given arguments.
+tools = [search_tool]
+tool_executor = ToolExecutor(tools)
+
+# --- 3. Instantiate the Model and Bind Tools ---
+# Ensure your Ollama model is good at tool calling (e.g., llama3, phi3).
+
+llm = ProxiedChatOllama(model="llama3", base_url="https://your-ollama-server-ip:port")
+llm_with_tools = llm.bind_tools(tools)
+
+# --- 4. Define the Agent's State ---
+# The state is a dictionary that gets passed between the nodes of the graph.
+
+class AgentState(TypedDict):
+    # The 'operator.add' line means that messages are appended to this list.
+    messages: Annotated[Sequence[BaseMessage], operator.add]
+
+# --- 5. Define the Nodes of the Graph ---
+
+# Node 1: The "brain" of the agent. It calls the LLM.
+def call_model(state):
+    """Invokes the LLM to decide the next action or respond."""
+    messages = state['messages']
+    print("--- Calling Model ---")
+    response = llm_with_tools.invoke(messages)
+    # The response is added to the state.
+    return {"messages": [response]}
+
+# Node 2: The "action taker". It executes the tools the LLM decided to call.
+def call_tool(state):
+    """Executes any tools called by the model and returns the results."""
+    last_message = state['messages'][-1]  # Get the latest AI message
+    # We check if the model decided to call a tool.
+    if not hasattr(last_message, 'tool_calls') or not last_message.tool_calls:
+        return {"messages": []} # No tool calls, do nothing.
+
+    print("--- Executing Tools ---")
+    # The ToolExecutor invokes the tools and returns the output.
+    tool_results = tool_executor.invoke(last_message)
+    return {"messages": tool_results}
+
+# --- 6. Define the Graph's Logic (Conditional Edges) ---
+
+def should_continue(state) -> str:
+    """
+    Determines the next step: call a tool or end the conversation.
+    """
+    last_message = state['messages'][-1]
+    # If the last message does not have tool calls, we are done.
+    if not hasattr(last_message, 'tool_calls') or not last_message.tool_calls:
+        return "end"
+    # Otherwise, we need to call the tools.
+    else:
+        return "continue"
+
+# --- 7. Construct and Compile the Graph ---
+
+# Define a new graph
+workflow = StateGraph(AgentState)
+
+# Add the nodes. The first node is the entry point.
+workflow.add_node("agent", call_model)
+workflow.add_node("action", call_tool)
+
+# Set the entry point for the graph
+workflow.set_entry_point("agent")
+
+# Add the conditional edges.
+workflow.add_conditional_edges(
+    # Start at the 'agent' node
+    "agent",
+    # The 'should_continue' function decides where to go next
+    should_continue,
+    {
+        # If the decision is "continue", go to the 'action' node
+        "continue": "action",
+        # If the decision is "end", finish the graph
+        "end": END,
+    },
+)
+
+# Any time we finish the 'action' node (tool execution), we loop back to the 'agent'
+# to let the model process the tool's results.
+workflow.add_edge("action", "agent")
+
+# Compile the graph into a runnable object.
+app = workflow.compile()
+
+# --- 8. Run the Agent ---
+
+# Let's interact with the agent.
+inputs = {"messages": [HumanMessage(content="What is langgraph?")]}
+for output in app.stream(inputs):
+    # stream() yields dictionaries with output from each step
+    for key, value in output.items():
+        print(f"Output from node '{key}':")
+        print("---")
+        print(value)
+    print("\n---\n")
+
+
+################ Option 2 ######################
+################################################
 import requests
 from langchain_community.chat_models import ChatOllama
 from langchain_core.prompts import ChatPromptTemplate
