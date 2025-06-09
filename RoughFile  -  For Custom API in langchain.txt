@@ -1,0 +1,184 @@
+Rough Code:
+import requests
+from langchain_community.llms import Ollama
+
+class ProxiedOllama(Ollama):
+    """
+    Custom Ollama class to support proxies and disable SSL verification.
+    """
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.proxies = {"http": "http://your-proxy-url:port", "https": "https://your-proxy-url:port"}
+        self.verify = False
+
+    @property
+    def _create_client(self):
+        """Create the httpx client."""
+        return requests.Session(proxies=self.proxies, verify=self.verify)
+
+# Example usage:
+llm = ProxiedOllama(
+    model="llama2",
+    base_url="https://your-ollama-server-ip:port"
+)
+
+# Now you can use this 'llm' object in your LangChain and LangGraph workflows.
+# For example, with a simple chain:
+from langchain_core.prompts import PromptTemplate
+from langchain.chains import LLMChain
+
+prompt = PromptTemplate(
+    input_variables=["topic"],
+    template="Tell me a joke about {topic}",
+)
+
+chain = LLMChain(llm=llm, prompt=prompt)
+
+response = chain.invoke("a developer")
+print(response)
+
+
+
+########################
+Snippet 2
+########################
+import httpx
+from langchain_community.llms import Ollama
+from langchain_community.chat_models import ChatOllama
+
+# Create custom httpx client with your requirements
+custom_client = httpx.Client(
+    verify=False,  # Disable SSL verification
+    proxies={
+        "http://": "http://your-proxy:port",
+        "https://": "http://your-proxy:port"
+    },
+    timeout=30.0
+)
+
+# Method 1: Monkey patch the default client
+import langchain_community.llms.ollama as ollama_module
+ollama_module.httpx.Client = lambda **kwargs: custom_client
+
+# Now use LangChain normally
+llm = Ollama(
+    model="llama2",
+    base_url="https://your-linux-server:11434"
+)
+
+
+############################
+Snippet 3
+############################
+import httpx
+import json
+from typing import Any, Dict, List, Optional
+from langchain_core.llms.base import LLM
+from langchain_core.callbacks.manager import CallbackManagerForLLMRun
+
+class CustomOllama(LLM):
+    base_url: str = "http://localhost:11434"
+    model: str = "llama2"
+    
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.client = httpx.Client(
+            verify=False,
+            proxies={
+                "http://": "http://your-proxy:port",
+                "https://": "http://your-proxy:port"
+            },
+            timeout=30.0
+        )
+    
+    @property
+    def _llm_type(self) -> str:
+        return "custom_ollama"
+    
+    def _call(
+        self,
+        prompt: str,
+        stop: Optional[List[str]] = None,
+        run_manager: Optional[CallbackManagerForLLMRun] = None,
+        **kwargs: Any,
+    ) -> str:
+        payload = {
+            "model": self.model,
+            "prompt": prompt,
+            "stream": False
+        }
+        
+        response = self.client.post(
+            f"{self.base_url}/api/generate",
+            json=payload
+        )
+        response.raise_for_status()
+        
+        return response.json()["response"]
+
+# Usage
+llm = CustomOllama(
+    base_url="https://your-linux-server:11434",
+    model="llama2"
+)
+
+
+#################
+Snipppet 4
+################
+import os
+import ssl
+import urllib3
+from langchain_community.llms import Ollama
+
+# Disable SSL warnings
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+# Set environment variables
+os.environ['CURL_CA_BUNDLE'] = ''
+os.environ['REQUESTS_CA_BUNDLE'] = ''
+os.environ['HTTP_PROXY'] = 'http://your-proxy:port'
+os.environ['HTTPS_PROXY'] = 'http://your-proxy:port'
+
+# Patch SSL context globally (use with caution)
+ssl._create_default_https_context = ssl._create_unverified_context
+
+llm = Ollama(
+    model="llama2",
+    base_url="https://your-linux-server:11434"
+)
+
+
+############# 
+Snippet 5 
+#############
+import httpx
+from langchain_openai import ChatOpenAI
+
+# Create custom httpx client
+custom_client = httpx.Client(
+    verify=False,
+    proxies={
+        "http://": "http://your-proxy:port",
+        "https://": "http://your-proxy:port"
+    }
+)
+
+# Monkey patch OpenAI's httpx client
+import openai
+openai.httpx.Client = lambda **kwargs: custom_client
+openai.httpx.AsyncClient = lambda **kwargs: httpx.AsyncClient(
+    verify=False,
+    proxies={
+        "http://": "http://your-proxy:port", 
+        "https://": "http://your-proxy:port"
+    }
+)
+
+llm = ChatOpenAI(
+    api_key="ollama",  # Ollama doesn't require real API key
+    base_url="https://your-linux-server:11434/v1",
+    model="llama2"
+)
+
+
