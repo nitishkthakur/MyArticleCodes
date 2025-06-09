@@ -338,35 +338,35 @@ print(response)
 Snippet 2
 ########################
 import httpx
+import os
 from langchain_community.llms import Ollama
 
-# Method 1: String format for proxy (works with most httpx versions)
-custom_client = httpx.Client(
-    verify=False,
-    proxy="http://your-proxy:port",  # Single proxy for all protocols
-    timeout=30.0
-)
-
-# Method 2: Environment variable approach
-import os
+# Set environment variables for proxy
 os.environ['HTTP_PROXY'] = 'http://your-proxy:port'
 os.environ['HTTPS_PROXY'] = 'http://your-proxy:port'
 
+# Create custom client
 custom_client = httpx.Client(
     verify=False,
     timeout=30.0
 )
 
-# Monkey patch
-import langchain_community.llms.ollama as ollama_module
-ollama_module.httpx.Client = lambda **kwargs: custom_client
+# Monkey patch the httpx module directly
+original_client = httpx.Client
+httpx.Client = lambda *args, **kwargs: custom_client
 
-# Use normally
+# Now use LangChain normally
 llm = Ollama(
     model="llama2",
     base_url="https://your-linux-server:11434"
 )
 
+# Test it
+try:
+    response = llm.invoke("Hello!")
+    print(f"Success: {response}")
+except Exception as e:
+    print(f"Error: {e}")
 
 ############################
 Snippet 3
