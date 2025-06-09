@@ -339,23 +339,29 @@ Snippet 2
 ########################
 import httpx
 from langchain_community.llms import Ollama
-from langchain_community.chat_models import ChatOllama
 
-# Create custom httpx client with your requirements
+# Method 1: String format for proxy (works with most httpx versions)
 custom_client = httpx.Client(
-    verify=False,  # Disable SSL verification
-    proxies={
-        "http://": "http://your-proxy:port",
-        "https://": "http://your-proxy:port"
-    },
+    verify=False,
+    proxy="http://your-proxy:port",  # Single proxy for all protocols
     timeout=30.0
 )
 
-# Method 1: Monkey patch the default client
+# Method 2: Environment variable approach
+import os
+os.environ['HTTP_PROXY'] = 'http://your-proxy:port'
+os.environ['HTTPS_PROXY'] = 'http://your-proxy:port'
+
+custom_client = httpx.Client(
+    verify=False,
+    timeout=30.0
+)
+
+# Monkey patch
 import langchain_community.llms.ollama as ollama_module
 ollama_module.httpx.Client = lambda **kwargs: custom_client
 
-# Now use LangChain normally
+# Use normally
 llm = Ollama(
     model="llama2",
     base_url="https://your-linux-server:11434"
