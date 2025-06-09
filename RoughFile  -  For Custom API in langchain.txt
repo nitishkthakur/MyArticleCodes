@@ -1,4 +1,152 @@
 Rough Code:
+
+
+import requests
+from langchain_community.chat_models import ChatOllama
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.pydantic_v1 import BaseModel, Field
+from langchain.tools import tool
+
+# --- 1. The Corrected Custom Class ---
+# We inherit from ChatOllama to get tool use and structured output capabilities
+class ProxiedChatOllama(ChatOllama):
+    """
+    Custom ChatOllama class to support proxies and disable SSL verification.
+    This class enables advanced features like tool calling and structured output.
+    """
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Define your proxy and SSL verification settings here
+        self.proxies = {"http": "http://your-proxy-url:port", "https": "https://your-proxy-url:port"}
+        self.verify = False
+
+    # The client creation logic is the same, as both Ollama and ChatOllama
+    # use this underlying property from a common base class.
+    @property
+    def _create_client(self):
+        """Create the httpx-compatible requests client."""
+        # Note: Langchain's Ollama classes use an httpx-like interface.
+        # While requests.Session works for basic cases, for full compatibility,
+        # especially with async operations, you might need to configure an httpx.Client.
+        # However, for synchronous requests, this approach is generally effective.
+        session = requests.Session()
+        session.proxies = self.proxies
+        session.verify = self.verify
+        return session
+
+# --- 2. Instantiate the Custom Model ---
+# Ensure you are using an Ollama model that is good at following JSON format instructions
+# or has been fine-tuned for tool calling (e.g., llama3, phi3, etc.).
+llm = ProxiedChatOllama(
+    model="llama3",
+    base_url="https://your-ollama-server-ip:port",
+    format="json" # Important for forcing JSON output when needed
+)
+
+# --- 3. Example: Tool Use ---
+
+print("--- Running Tool Use Example ---")
+
+# Define a tool
+@tool
+def get_current_weather(location: str, unit: str = "fahrenheit") -> str:
+    """Get the current weather in a given location."""
+    return f"The weather in {location} is 75 degrees {unit} and sunny."
+
+# Bind the tool to the model
+llm_with_tools = llm.bind_tools([get_current_weather])
+
+# Create a chain
+prompt = ChatPromptTemplate.from_messages([
+    ("system", "You are a helpful assistant."),
+    ("human", "{input}"),
+])
+chain_with_tools = prompt | llm_with_tools
+
+# Invoke the chain
+response = chain_with_tools.invoke({"input": "What is the weather in San Francisco?"})
+
+print("\nModel Response:")
+print(response)
+print("\nDetected Tool Calls:")
+print(response.tool_calls)
+
+
+# --- 4. Example: Structured Output ---
+
+print("\n\n--- Running Structured Output Example ---")
+
+# Define your desired Pydantic output schema
+class Joke(BaseModel):
+    """A joke with a setup and a punchline."""
+    setup: str = Field(description="The setup of the joke")
+    punchline: str = Field(description="The punchline of the joke")
+    rating: int = Field(description="A rating of the joke's funniness from 1 to 10")
+
+# Create a new chain for structured output
+structured_llm = llm.with_structured_output(Joke)
+chain_structured = prompt | structured_llm
+
+# Invoke the chain
+joke_response = chain_structured.invoke({"input": "Tell me a great joke about programming."})
+
+print("\nStructured Output Response:")
+print(joke_response)
+print(f"\nSetup: {joke_response.setup}")
+print(f"Punchline: {joke_response.punchline}")
+print(f"Rating: {joke_response.rating}")
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 import requests
 from langchain_community.llms import Ollama
 
