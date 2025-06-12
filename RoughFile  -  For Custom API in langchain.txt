@@ -1,3 +1,63 @@
+############ GDP Growth ##########
+Source	Series ID	Direct CSV URL
+World Bank API	NY.GDP.MKTP.KD.ZG	https://api.worldbank.org/v2/country/US/indicator/NY.GDP.MKTP.KD.ZG?format=csv 
+datahelpdesk.worldbank.org
+World Bank DataBank	NY.GDP.MKTP.KD.ZG	Browse & click “Download” on https://data.worldbank.org/indicator/NY.GDP.MKTP.KD.ZG?locations=US 
+data.worldbank.org
+FRED (St. Louis Fed)	GDPC1	https://fred.stlouisfed.org/graph/fredgraph.csv?id=GDPC1 
+fred.stlouisfed.org
+ALFRED (Vintage data)	GDPC1	https://alfred.stlouisfed.org/series/downloaddata?seid=GDPC1 
+alfred.stlouisfed.org
+
+yearly average: https://data.worldbank.org/indicator/NY.GDP.MKTP.KD.ZG?end=2023&locations=US&start=2018
+
+
+
+## GDP ##
+Quick Links Recap
+Series	Source	CSV URL / Interface
+U.S. Real GDP Growth	FRED (GDPC1)	fredgraph.csv?id=GDPC1 
+fred.stlouisfed.org
+U.S. Real GDP per Capita Growth	FRED (A939RX0Q048SBEA)	fredgraph.csv?id=A939RX0Q048SBEA 
+fred.stlouisfed.org
+U.S. Real GDP Growth (forecasted)	IMF WEO (NGDP_RPCH@WEO)	DataMapper → Download CSV 
+imf.org
+U.S. GDP per Capita, current USD	IMF WEO (NGDPDPC@WEO)	DataMapper → Download CSV 
+imf.org
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 Rough Code:
 
 import requests
