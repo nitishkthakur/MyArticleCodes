@@ -1,3 +1,73 @@
+###### tfidf based search ########
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
+import numpy as np
+
+def search_documents(documents, query, top_k=5):
+    """
+    Perform TF-IDF based search on documents
+    
+    Args:
+        documents: List of text documents
+        query: Search query string
+        top_k: Number of top results to return
+    
+    Returns:
+        List of tuples (doc_index, similarity_score, document_text)
+    """
+    # Create TF-IDF vectorizer
+    vectorizer = TfidfVectorizer(stop_words='english', lowercase=True)
+    
+    # Fit and transform documents
+    doc_vectors = vectorizer.fit_transform(documents)
+    
+    # Transform query
+    query_vector = vectorizer.transform([query])
+    
+    # Calculate cosine similarity
+    similarities = cosine_similarity(query_vector, doc_vectors).flatten()
+    
+    # Get top k results
+    top_indices = np.argsort(similarities)[::-1][:top_k]
+    
+    # Return results with similarity scores > 0
+    results = []
+    for idx in top_indices:
+        if similarities[idx] > 0:
+            results.append((idx, similarities[idx], documents[idx]))
+    
+    return results
+
+# Example usage
+if __name__ == "__main__":
+    # Sample documents
+    docs = [
+        "Machine learning is a subset of artificial intelligence.",
+        "Python is a popular programming language for data science.",
+        "Natural language processing helps computers understand text.",
+        "Deep learning uses neural networks with multiple layers.",
+        "Data visualization helps in understanding complex datasets."
+    ]
+    
+    # Search query
+    query = "artificial intelligence machine learning"
+    
+    # Perform search
+    results = search_documents(docs, query, top_k=3)
+    
+    # Display results
+    for i, (doc_idx, score, text) in enumerate(results, 1):
+        print(f"{i}. Score: {score:.3f}")
+        print(f"   Document {doc_idx}: {text}\n")
+
+
+
+
+
+
+
+
+
 ########## v1 Of agent
 import os
 from typing import Dict, Any, List
