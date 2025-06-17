@@ -1,3 +1,912 @@
+########## v1 Of agent
+import os
+from typing import Dict, Any, List
+from langchain.agents import create_react_agent, AgentExecutor
+from langchain_core.tools import tool
+from langchain_core.prompts import PromptTemplate
+from langchain_openai import ChatOpenAI
+from langchain import hub
+import re
+import json
+
+# Configure your API key
+# os.environ["OPENAI_API_KEY"] = "your-api-key-here"
+
+class FinancialMetricsExtractor:
+    def __init__(self, model_name: str = "gpt-4"):
+        """Initialize the financial metrics extraction agent"""
+        self.llm = ChatOpenAI(model=model_name, temperature=0)
+        self.tools = self._create_tools()
+        self.agent = self._create_agent()
+        
+    def _create_tools(self) -> List:
+        """Create tools for the agent"""
+        
+        @tool
+        def load_pdf_content(file_path: str) -> str:
+            """
+            Load PDF content from file path and return as string.
+            This is a placeholder - replace with your actual PDF loading tool.
+            """
+            # Replace this with your actual PDF loading implementation
+            try:
+                # Simulated PDF content loading
+                # In reality, you'd use your existing PDF tool here
+                return f"PDF content loaded from {file_path}. This would contain the actual earnings report text."
+            except Exception as e:
+                return f"Error loading PDF: {str(e)}"
+        
+        @tool
+        def extract_revenue_metrics(text: str) -> Dict[str, Any]:
+            """Extract revenue-related financial metrics from earnings report text"""
+            try:
+                # Common revenue patterns in earnings reports
+                revenue_patterns = {
+                    'total_revenue': r'(?:total\s+)?revenue[:\s]+\$?([0-9,]+\.?[0-9]*)\s*(?:million|billion|m|b)?',
+                    'net_revenue': r'net\s+revenue[:\s]+\$?([0-9,]+\.?[0-9]*)\s*(?:million|billion|m|b)?',
+                    'quarterly_revenue': r'(?:q[1-4]|quarter|quarterly)\s+revenue[:\s]+\$?([0-9,]+\.?[0-9]*)\s*(?:million|billion|m|b)?',
+                    'yoy_revenue_growth': r'revenue\s+(?:growth|increase)[:\s]+([0-9]+\.?[0-9]*)%',
+                }
+                
+                extracted = {}
+                text_lower = text.lower()
+                
+                for metric, pattern in revenue_patterns.items():
+                    matches = re.findall(pattern, text_lower)
+                    if matches:
+                        extracted[metric] = matches[0].replace(',', '')
+                
+                return {"revenue_metrics": extracted, "extraction_successful": True}
+            except Exception as e:
+                return {"error": str(e), "extraction_successful": False}
+        
+        @tool
+        def extract_profitability_metrics(text: str) -> Dict[str, Any]:
+            """Extract profitability metrics from earnings report text"""
+            try:
+                profitability_patterns = {
+                    'net_income': r'net\s+income[:\s]+\$?([0-9,]+\.?[0-9]*)\s*(?:million|billion|m|b)?',
+                    'operating_income': r'operating\s+income[:\s]+\$?([0-9,]+\.?[0-9]*)\s*(?:million|billion|m|b)?',
+                    'gross_profit': r'gross\s+profit[:\s]+\$?([0-9,]+\.?[0-9]*)\s*(?:million|billion|m|b)?',
+                    'earnings_per_share': r'(?:eps|earnings\s+per\s+share)[:\s]+\$?([0-9]+\.?[0-9]*)',
+                    'operating_margin': r'operating\s+margin[:\s]+([0-9]+\.?[0-9]*)%',
+                    'net_margin': r'net\s+margin[:\s]+([0-9]+\.?[0-9]*)%',
+                }
+                
+                extracted = {}
+                text_lower = text.lower()
+                
+                for metric, pattern in profitability_patterns.items():
+                    matches = re.findall(pattern, text_lower)
+                    if matches:
+                        extracted[metric] = matches[0].replace(',', '')
+                
+                return {"profitability_metrics": extracted, "extraction_successful": True}
+            except Exception as e:
+                return {"error": str(e), "extraction_successful": False}
+        
+        @tool
+        def extract_balance_sheet_metrics(text: str) -> Dict[str, Any]:
+            """Extract balance sheet metrics from earnings report text"""
+            try:
+                balance_sheet_patterns = {
+                    'total_assets': r'total\s+assets[:\s]+\$?([0-9,]+\.?[0-9]*)\s*(?:million|billion|m|b)?',
+                    'total_liabilities': r'total\s+liabilities[:\s]+\$?([0-9,]+\.?[0-9]*)\s*(?:million|billion|m|b)?',
+                    'shareholders_equity': r'(?:shareholders?\s+equity|stockholders?\s+equity)[:\s]+\$?([0-9,]+\.?[0-9]*)\s*(?:million|billion|m|b)?',
+                    'cash_and_equivalents': r'(?:cash\s+and\s+(?:cash\s+)?equivalents|cash)[:\s]+\$?([0-9,]+\.?[0-9]*)\s*(?:million|billion|m|b)?',
+                    'debt_to_equity': r'debt[\s\-]to[\s\-]equity[:\s]+([0-9]+\.?[0-9]*)',
+                }
+                
+                extracted = {}
+                text_lower = text.lower()
+                
+                for metric, pattern in balance_sheet_patterns.items():
+                    matches = re.findall(pattern, text_lower)
+                    if matches:
+                        extracted[metric] = matches[0].replace(',', '')
+                
+                return {"balance_sheet_metrics": extracted, "extraction_successful": True}
+            except Exception as e:
+                return {"error": str(e), "extraction_successful": False}
+        
+        @tool
+        def extract_cash_flow_metrics(text: str) -> Dict[str, Any]:
+            """Extract cash flow metrics from earnings report text"""
+            try:
+                cash_flow_patterns = {
+                    'operating_cash_flow': r'(?:cash\s+flow\s+from\s+)?operating\s+(?:activities|cash\s+flow)[:\s]+\$?([0-9,]+\.?[0-9]*)\s*(?:million|billion|m|b)?',
+                    'free_cash_flow': r'free\s+cash\s+flow[:\s]+\$?([0-9,]+\.?[0-9]*)\s*(?:million|billion|m|b)?',
+                    'investing_cash_flow': r'(?:cash\s+flow\s+from\s+)?investing\s+activities[:\s]+\$?([0-9,]+\.?[0-9]*)\s*(?:million|billion|m|b)?',
+                    'financing_cash_flow': r'(?:cash\s+flow\s+from\s+)?financing\s+activities[:\s]+\$?([0-9,]+\.?[0-9]*)\s*(?:million|billion|m|b)?',
+                }
+                
+                extracted = {}
+                text_lower = text.lower()
+                
+                for metric, pattern in cash_flow_patterns.items():
+                    matches = re.findall(pattern, text_lower)
+                    if matches:
+                        extracted[metric] = matches[0].replace(',', '')
+                
+                return {"cash_flow_metrics": extracted, "extraction_successful": True}
+            except Exception as e:
+                return {"error": str(e), "extraction_successful": False}
+        
+        @tool
+        def format_financial_summary(metrics_dict: str) -> str:
+            """Format extracted financial metrics into a comprehensive summary"""
+            try:
+                # Parse the input if it's a string representation of dict
+                if isinstance(metrics_dict, str):
+                    metrics = eval(metrics_dict)  # In production, use json.loads() instead
+                else:
+                    metrics = metrics_dict
+                
+                summary = "📊 FINANCIAL METRICS SUMMARY\n"
+                summary += "=" * 40 + "\n\n"
+                
+                # Revenue Section
+                if 'revenue_metrics' in metrics:
+                    summary += "💰 REVENUE METRICS:\n"
+                    for key, value in metrics['revenue_metrics'].items():
+                        summary += f"  • {key.replace('_', ' ').title()}: ${value}\n"
+                    summary += "\n"
+                
+                # Profitability Section
+                if 'profitability_metrics' in metrics:
+                    summary += "📈 PROFITABILITY METRICS:\n"
+                    for key, value in metrics['profitability_metrics'].items():
+                        summary += f"  • {key.replace('_', ' ').title()}: ${value}\n"
+                    summary += "\n"
+                
+                # Balance Sheet Section
+                if 'balance_sheet_metrics' in metrics:
+                    summary += "⚖️ BALANCE SHEET METRICS:\n"
+                    for key, value in metrics['balance_sheet_metrics'].items():
+                        summary += f"  • {key.replace('_', ' ').title()}: ${value}\n"
+                    summary += "\n"
+                
+                # Cash Flow Section
+                if 'cash_flow_metrics' in metrics:
+                    summary += "💸 CASH FLOW METRICS:\n"
+                    for key, value in metrics['cash_flow_metrics'].items():
+                        summary += f"  • {key.replace('_', ' ').title()}: ${value}\n"
+                    summary += "\n"
+                
+                return summary
+            except Exception as e:
+                return f"Error formatting summary: {str(e)}"
+        
+        return [
+            load_pdf_content,
+            extract_revenue_metrics,
+            extract_profitability_metrics,
+            extract_balance_sheet_metrics,
+            extract_cash_flow_metrics,
+            format_financial_summary
+        ]
+    
+    def _create_agent(self):
+        """Create the ReAct agent"""
+        # Use the standard ReAct prompt from LangChain hub
+        prompt = hub.pull("hwchase17/react")
+        
+        # Create the agent
+        agent = create_react_agent(self.llm, self.tools, prompt)
+        
+        # Create agent executor
+        agent_executor = AgentExecutor(
+            agent=agent,
+            tools=self.tools,
+            verbose=True,
+            handle_parsing_errors=True,
+            max_iterations=10
+        )
+        
+        return agent_executor
+    
+    def extract_metrics(self, pdf_file_path: str, bank_name: str = "") -> Dict[str, Any]:
+        """
+        Main method to extract financial metrics from a bank's earnings report
+        
+        Args:
+            pdf_file_path (str): Path to the PDF earnings report
+            bank_name (str): Name of the bank (optional)
+            
+        Returns:
+            Dict[str, Any]: Extracted financial metrics
+        """
+        query = f"""
+        Please analyze the earnings report for {bank_name} and extract comprehensive financial metrics.
+        
+        Follow these steps:
+        1. Load the PDF content from: {pdf_file_path}
+        2. Extract revenue metrics from the loaded content
+        3. Extract profitability metrics from the loaded content
+        4. Extract balance sheet metrics from the loaded content  
+        5. Extract cash flow metrics from the loaded content
+        6. Format all extracted metrics into a comprehensive summary
+        
+        Focus on key banking metrics such as:
+        - Net interest income
+        - Non-interest income
+        - Operating expenses
+        - Provisions for credit losses
+        - Return on equity (ROE)
+        - Return on assets (ROA)
+        - Net interest margin
+        - Efficiency ratio
+        - Tier 1 capital ratio
+        - Book value per share
+        """
+        
+        try:
+            result = self.agent.invoke({"input": query})
+            return {
+                "success": True,
+                "bank_name": bank_name,
+                "file_path": pdf_file_path,
+                "extracted_metrics": result.get("output", ""),
+                "processing_steps": "PDF loaded → Metrics extracted → Summary formatted"
+            }
+        except Exception as e:
+            return {
+                "success": False,
+                "error": str(e),
+                "bank_name": bank_name,
+                "file_path": pdf_file_path
+            }
+
+# Example usage
+def main():
+    """Example usage of the Financial Metrics Extractor"""
+    
+    # Initialize the extractor
+    extractor = FinancialMetricsExtractor(model_name="gpt-4")
+    
+    # Example: Extract metrics from a bank's earnings report
+    result = extractor.extract_metrics(
+        pdf_file_path="./reports/jpmorgan_q4_2024_earnings.pdf",
+        bank_name="JPMorgan Chase"
+    )
+    
+    if result["success"]:
+        print("✅ Extraction successful!")
+        print("\n" + "="*50)
+        print(result["extracted_metrics"])
+        print("="*50)
+    else:
+        print("❌ Extraction failed:")
+        print(result["error"])
+
+if __name__ == "__main__":
+    # Set your OpenAI API key
+    # os.environ["OPENAI_API_KEY"] = "your-api-key-here"
+    
+    main()
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+#################################################
+######################### v2 ####################
+#################################################
+import os
+from typing import Dict, Any, List, Optional
+from langchain.agents import create_react_agent, AgentExecutor
+from langchain_core.tools import tool
+from langchain_core.prompts import PromptTemplate
+from langchain_openai import ChatOpenAI
+from langchain import hub
+import json
+from pydantic import BaseModel, Field
+
+# Configure your API key
+# os.environ["OPENAI_API_KEY"] = "your-api-key-here"
+
+class FinancialMetrics(BaseModel):
+    """Structured model for financial metrics"""
+    revenue_metrics: Dict[str, str] = Field(default_factory=dict, description="Revenue-related metrics")
+    profitability_metrics: Dict[str, str] = Field(default_factory=dict, description="Profitability metrics")
+    balance_sheet_metrics: Dict[str, str] = Field(default_factory=dict, description="Balance sheet metrics")
+    cash_flow_metrics: Dict[str, str] = Field(default_factory=dict, description="Cash flow metrics")
+    banking_specific_metrics: Dict[str, str] = Field(default_factory=dict, description="Banking-specific metrics")
+    key_highlights: List[str] = Field(default_factory=list, description="Key financial highlights")
+
+class LLMFinancialMetricsExtractor:
+    def __init__(self, model_name: str = "gpt-4"):
+        """Initialize the LLM-powered financial metrics extraction agent"""
+        self.llm = ChatOpenAI(model=model_name, temperature=0)
+        self.extraction_llm = ChatOpenAI(model=model_name, temperature=0.1)  # Slightly higher temp for analysis
+        self.tools = self._create_tools()
+        self.agent = self._create_agent()
+        
+    def _create_tools(self) -> List:
+        """Create LLM-powered tools for the agent"""
+        
+        @tool
+        def load_pdf_content(file_path: str) -> str:
+            """
+            Load PDF content from file path and return as string.
+            This is a placeholder - replace with your actual PDF loading tool.
+            """
+            # Replace this with your actual PDF loading implementation
+            try:
+                # Simulated PDF content loading
+                # In reality, you'd use your existing PDF tool here
+                return f"PDF content loaded from {file_path}. This would contain the actual earnings report text from the bank's quarterly/annual report."
+            except Exception as e:
+                return f"Error loading PDF: {str(e)}"
+        
+        @tool
+        def llm_extract_revenue_metrics(earnings_text: str) -> str:
+            """Use LLM to intelligently extract revenue-related financial metrics from earnings report text"""
+            
+            extraction_prompt = PromptTemplate(
+                input_variables=["text"],
+                template="""
+                You are a financial analyst expert specializing in banking sector earnings analysis. 
+                
+                Analyze the following earnings report text and extract ALL revenue-related metrics with their exact values.
+                Focus on banking-specific revenue streams:
+                
+                BANKING REVENUE METRICS TO EXTRACT:
+                - Net Interest Income
+                - Non-Interest Income  
+                - Total Revenue/Net Revenue
+                - Fee and Commission Income
+                - Trading Revenue
+                - Investment Banking Revenue
+                - Wealth Management Revenue
+                - Consumer Banking Revenue
+                - Commercial Banking Revenue
+                - Credit Card Revenue
+                - Mortgage Banking Revenue
+                - Trust and Investment Management Fees
+                
+                EARNINGS REPORT TEXT:
+                {text}
+                
+                INSTRUCTIONS:
+                1. Extract exact numerical values with units (millions, billions, etc.)
+                2. Include period comparisons (YoY growth, QoQ changes)
+                3. Note any guidance or forecasts mentioned
+                4. If a metric isn't found, don't include it
+                5. Return as a JSON object with metric names as keys and values as strings
+                
+                Return only the JSON object, no additional text.
+                """
+            )
+            
+            try:
+                prompt_text = extraction_prompt.format(text=earnings_text)
+                response = self.extraction_llm.invoke(prompt_text)
+                return response.content
+            except Exception as e:
+                return json.dumps({"error": f"LLM extraction failed: {str(e)}"})
+        
+        @tool
+        def llm_extract_profitability_metrics(earnings_text: str) -> str:
+            """Use LLM to intelligently extract profitability metrics from earnings report text"""
+            
+            extraction_prompt = PromptTemplate(
+                input_variables=["text"],
+                template="""
+                You are a financial analyst expert specializing in banking profitability analysis.
+                
+                Analyze the following earnings report text and extract ALL profitability-related metrics:
+                
+                PROFITABILITY METRICS TO EXTRACT:
+                - Net Income/Net Earnings
+                - Operating Income
+                - Pre-Tax Income
+                - Earnings Per Share (EPS) - Basic and Diluted
+                - Return on Equity (ROE)
+                - Return on Assets (ROA)  
+                - Return on Tangible Common Equity (ROTCE)
+                - Net Interest Margin (NIM)
+                - Operating Margin
+                - Efficiency Ratio
+                - Cost-to-Income Ratio
+                - Pre-Provision Net Revenue (PPNR)
+                - Operating Leverage
+                - Tangible Book Value Per Share
+                
+                EARNINGS REPORT TEXT:
+                {text}
+                
+                INSTRUCTIONS:
+                1. Extract exact values with appropriate units and percentages
+                2. Include comparative data (YoY, QoQ changes)
+                3. Note any adjusted/normalized figures mentioned
+                4. Capture guidance or target ranges
+                5. Return as JSON object with metric names as keys
+                
+                Return only the JSON object, no additional text.
+                """
+            )
+            
+            try:
+                prompt_text = extraction_prompt.format(text=earnings_text)
+                response = self.extraction_llm.invoke(prompt_text)
+                return response.content
+            except Exception as e:
+                return json.dumps({"error": f"LLM extraction failed: {str(e)}"})
+        
+        @tool
+        def llm_extract_balance_sheet_metrics(earnings_text: str) -> str:
+            """Use LLM to intelligently extract balance sheet metrics from earnings report text"""
+            
+            extraction_prompt = PromptTemplate(
+                input_variables=["text"],
+                template="""
+                You are a financial analyst expert specializing in banking balance sheet analysis.
+                
+                Analyze the following earnings report text and extract ALL balance sheet-related metrics:
+                
+                BALANCE SHEET METRICS TO EXTRACT:
+                - Total Assets
+                - Total Loans and Leases
+                - Total Deposits
+                - Total Shareholders' Equity
+                - Tangible Common Equity
+                - Total Liabilities
+                - Cash and Cash Equivalents
+                - Securities Portfolio Value
+                - Allowance for Credit Losses
+                - Goodwill and Intangible Assets
+                - Book Value Per Share
+                - Tangible Book Value Per Share
+                - Common Equity Tier 1 (CET1) Ratio
+                - Tier 1 Capital Ratio
+                - Total Capital Ratio
+                - Leverage Ratio
+                - Loan-to-Deposit Ratio
+                - Asset Quality Metrics
+                
+                EARNINGS REPORT TEXT:
+                {text}
+                
+                INSTRUCTIONS:
+                1. Extract exact values with units (billions, millions, etc.)
+                2. Include regulatory capital ratios and percentages
+                3. Note any period-over-period changes
+                4. Capture asset quality indicators
+                5. Return as JSON object with metric names as keys
+                
+                Return only the JSON object, no additional text.
+                """
+            )
+            
+            try:
+                prompt_text = extraction_prompt.format(text=earnings_text)
+                response = self.extraction_llm.invoke(prompt_text)
+                return response.content
+            except Exception as e:
+                return json.dumps({"error": f"LLM extraction failed: {str(e)}"})
+        
+        @tool
+        def llm_extract_cash_flow_metrics(earnings_text: str) -> str:
+            """Use LLM to intelligently extract cash flow metrics from earnings report text"""
+            
+            extraction_prompt = PromptTemplate(
+                input_variables=["text"],
+                template="""
+                You are a financial analyst expert specializing in banking cash flow analysis.
+                
+                Analyze the following earnings report text and extract ALL cash flow-related metrics:
+                
+                CASH FLOW METRICS TO EXTRACT:
+                - Operating Cash Flow
+                - Free Cash Flow
+                - Cash Flow from Investing Activities
+                - Cash Flow from Financing Activities  
+                - Net Cash Flow
+                - Dividend Payments
+                - Share Repurchases/Buybacks
+                - Capital Expenditures
+                - Cash Flow Per Share
+                - Cash Flow Return on Investment
+                - Operating Cash Flow Margin
+                - Free Cash Flow Yield
+                - Cash Conversion Cycle (if applicable)
+                
+                EARNINGS REPORT TEXT:
+                {text}
+                
+                INSTRUCTIONS:
+                1. Extract exact values with units (billions, millions, etc.)
+                2. Include period comparisons where available
+                3. Note any special items or adjustments
+                4. Capture dividend and capital allocation information
+                5. Return as JSON object with metric names as keys
+                
+                Return only the JSON object, no additional text.
+                """
+            )
+            
+            try:
+                prompt_text = extraction_prompt.format(text=earnings_text)
+                response = self.extraction_llm.invoke(prompt_text)
+                return response.content
+            except Exception as e:
+                return json.dumps({"error": f"LLM extraction failed: {str(e)}"})
+        
+        @tool
+        def llm_extract_banking_specific_metrics(earnings_text: str) -> str:
+            """Use LLM to extract banking industry-specific metrics and ratios"""
+            
+            extraction_prompt = PromptTemplate(
+                input_variables=["text"],
+                template="""
+                You are a banking industry expert specializing in bank-specific financial metrics.
+                
+                Analyze the following earnings report text and extract BANKING-SPECIFIC metrics:
+                
+                BANKING-SPECIFIC METRICS TO EXTRACT:
+                - Net Charge-offs
+                - Provision for Credit Losses/Loan Loss Provision
+                - Non-Performing Loans (NPL) Ratio
+                - Non-Performing Assets (NPA) Ratio
+                - Net Charge-off Rate
+                - Allowance Coverage Ratio
+                - Credit Loss Rate
+                - Loan Growth Rate
+                - Deposit Growth Rate
+                - Net Interest Spread
+                - Cost of Funds
+                - Yield on Earning Assets
+                - Duration Risk Metrics
+                - Value at Risk (VaR)
+                - Trading Revenue Volatility
+                - Operational Risk Metrics
+                - Regulatory Capital Requirements
+                - Stress Test Results (if mentioned)
+                - Basel III Compliance Metrics
+                
+                EARNINGS REPORT TEXT:
+                {text}
+                
+                INSTRUCTIONS:
+                1. Focus on banking industry-specific metrics only
+                2. Include risk management and regulatory metrics
+                3. Extract credit quality indicators
+                4. Note any regulatory changes or impacts
+                5. Return as JSON object with metric names as keys
+                
+                Return only the JSON object, no additional text.
+                """
+            )
+            
+            try:
+                prompt_text = extraction_prompt.format(text=earnings_text)
+                response = self.extraction_llm.invoke(prompt_text)
+                return response.content
+            except Exception as e:
+                return json.dumps({"error": f"LLM extraction failed: {str(e)}"})
+        
+        @tool
+        def llm_generate_financial_insights(all_metrics: str) -> str:
+            """Use LLM to generate comprehensive financial insights from extracted metrics"""
+            
+            analysis_prompt = PromptTemplate(
+                input_variables=["metrics"],
+                template="""
+                You are a senior banking analyst preparing a comprehensive financial analysis report.
+                
+                Based on the following extracted financial metrics, provide a detailed analysis:
+                
+                EXTRACTED METRICS:
+                {metrics}
+                
+                GENERATE A COMPREHENSIVE ANALYSIS INCLUDING:
+                
+                1. EXECUTIVE SUMMARY
+                   - Overall financial performance assessment
+                   - Key strengths and concerns
+                   
+                2. REVENUE ANALYSIS
+                   - Revenue composition and trends
+                   - Net interest margin analysis
+                   - Fee income performance
+                   
+                3. PROFITABILITY ASSESSMENT
+                   - ROE, ROA analysis and peer comparison context
+                   - Efficiency ratio evaluation
+                   - Earnings quality assessment
+                   
+                4. BALANCE SHEET STRENGTH
+                   - Capital adequacy assessment
+                   - Asset quality evaluation
+                   - Leverage and liquidity analysis
+                   
+                5. RISK PROFILE
+                   - Credit risk indicators
+                   - Provision adequacy
+                   - Regulatory compliance status
+                   
+                6. KEY TAKEAWAYS
+                   - Top 3 positive highlights
+                   - Top 3 areas of concern
+                   - Investment thesis summary
+                
+                FORMAT: Use clear sections with bullet points and specific metrics where relevant.
+                """
+            )
+            
+            try:
+                prompt_text = analysis_prompt.format(metrics=all_metrics)
+                response = self.extraction_llm.invoke(prompt_text)
+                return response.content
+            except Exception as e:
+                return f"Analysis generation failed: {str(e)}"
+        
+        @tool
+        def format_comprehensive_report(all_data: str) -> str:
+            """Format all extracted data and insights into a final comprehensive report"""
+            try:
+                report = "🏦 COMPREHENSIVE BANK FINANCIAL ANALYSIS REPORT\n"
+                report += "=" * 60 + "\n\n"
+                
+                # Add timestamp and processing info
+                from datetime import datetime
+                report += f"📅 Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+                report += f"🤖 Powered by: LLM-Enhanced Financial Analysis\n\n"
+                
+                # Add the comprehensive analysis
+                report += all_data
+                
+                report += "\n" + "=" * 60 + "\n"
+                report += "💡 This analysis was generated using advanced LLM extraction and analysis techniques.\n"
+                report += "⚠️  Please verify all figures with official earnings documents.\n"
+                
+                return report
+            except Exception as e:
+                return f"Report formatting failed: {str(e)}"
+        
+        return [
+            load_pdf_content,
+            llm_extract_revenue_metrics,
+            llm_extract_profitability_metrics,
+            llm_extract_balance_sheet_metrics,
+            llm_extract_cash_flow_metrics,
+            llm_extract_banking_specific_metrics,
+            llm_generate_financial_insights,
+            format_comprehensive_report
+        ]
+    
+    def _create_agent(self):
+        """Create the ReAct agent with LLM-powered tools"""
+        # Use the standard ReAct prompt from LangChain hub
+        prompt = hub.pull("hwchase17/react")
+        
+        # Create the agent
+        agent = create_react_agent(self.llm, self.tools, prompt)
+        
+        # Create agent executor
+        agent_executor = AgentExecutor(
+            agent=agent,
+            tools=self.tools,
+            verbose=True,
+            handle_parsing_errors=True,
+            max_iterations=15,  # More iterations for LLM processing
+            return_intermediate_steps=True
+        )
+        
+        return agent_executor
+    
+    def extract_metrics(self, pdf_file_path: str, bank_name: str = "") -> Dict[str, Any]:
+        """
+        Main method to extract financial metrics using LLM-powered analysis
+        
+        Args:
+            pdf_file_path (str): Path to the PDF earnings report
+            bank_name (str): Name of the bank (optional)
+            
+        Returns:
+            Dict[str, Any]: Comprehensive financial analysis results
+        """
+        query = f"""
+        Please conduct a comprehensive financial analysis of {bank_name}'s earnings report using advanced LLM extraction techniques.
+        
+        Follow this systematic approach:
+        
+        1. Load the PDF content from: {pdf_file_path}
+        
+        2. Use LLM-powered extraction for each category:
+           - Extract revenue metrics using intelligent text analysis
+           - Extract profitability metrics with banking expertise
+           - Extract balance sheet metrics with regulatory focus
+           - Extract cash flow metrics with investment perspective
+           - Extract banking-specific metrics with industry knowledge
+        
+        3. Synthesize all extracted metrics into comprehensive insights
+        
+        4. Generate a final formatted report with professional analysis
+        
+        This analysis should provide institutional-quality insights suitable for:
+        - Investment decision making
+        - Credit risk assessment  
+        - Regulatory compliance evaluation
+        - Peer comparison analysis
+        - Strategic planning
+        
+        Focus on accuracy, completeness, and actionable insights.
+        """
+        
+        try:
+            result = self.agent.invoke({"input": query})
+            
+            return {
+                "success": True,
+                "bank_name": bank_name,
+                "file_path": pdf_file_path,
+                "comprehensive_analysis": result.get("output", ""),
+                "processing_method": "LLM-Powered Extraction & Analysis",
+                "intermediate_steps": result.get("intermediate_steps", []),
+                "extraction_confidence": "High - AI-Enhanced Analysis"
+            }
+        except Exception as e:
+            return {
+                "success": False,
+                "error": str(e),
+                "bank_name": bank_name,
+                "file_path": pdf_file_path,
+                "processing_method": "LLM-Powered Extraction & Analysis"
+            }
+    
+    def batch_analyze_reports(self, pdf_files: List[Dict[str, str]]) -> List[Dict[str, Any]]:
+        """
+        Analyze multiple bank earnings reports in batch
+        
+        Args:
+            pdf_files: List of dicts with 'path' and 'bank_name' keys
+            
+        Returns:
+            List of analysis results
+        """
+        results = []
+        for file_info in pdf_files:
+            result = self.extract_metrics(
+                pdf_file_path=file_info['path'],
+                bank_name=file_info['bank_name']
+            )
+            results.append(result)
+        
+        return results
+
+# Example usage
+def main():
+    """Example usage of the LLM-Powered Financial Metrics Extractor"""
+    
+    # Initialize the extractor
+    extractor = LLMFinancialMetricsExtractor(model_name="gpt-4")
+    
+    # Example: Extract metrics from a bank's earnings report
+    result = extractor.extract_metrics(
+        pdf_file_path="./reports/jpmorgan_q4_2024_earnings.pdf",
+        bank_name="JPMorgan Chase & Co."
+    )
+    
+    if result["success"]:
+        print("✅ LLM-Powered Analysis Complete!")
+        print("\n" + "="*60)
+        print(result["comprehensive_analysis"])
+        print("="*60)
+        print(f"\n🤖 Processing Method: {result['processing_method']}")
+        print(f"🎯 Confidence Level: {result['extraction_confidence']}")
+    else:
+        print("❌ Analysis failed:")
+        print(result["error"])
+    
+    # Example: Batch analysis
+    print("\n" + "="*60)
+    print("🏦 BATCH ANALYSIS EXAMPLE")
+    print("="*60)
+    
+    bank_reports = [
+        {"path": "./reports/jpmorgan_q4_2024.pdf", "bank_name": "JPMorgan Chase"},
+        {"path": "./reports/bofa_q4_2024.pdf", "bank_name": "Bank of America"},
+        {"path": "./reports/wells_fargo_q4_2024.pdf", "bank_name": "Wells Fargo"}
+    ]
+    
+    batch_results = extractor.batch_analyze_reports(bank_reports)
+    
+    for i, result in enumerate(batch_results):
+        print(f"\n📊 Analysis {i+1}: {result.get('bank_name', 'Unknown')}")
+        print(f"Status: {'✅ Success' if result['success'] else '❌ Failed'}")
+
+if __name__ == "__main__":
+    # Set your OpenAI API key
+    # os.environ["OPENAI_API_KEY"] = "your-api-key-here"
+    
+    main()
+
+
+
+
+
+
+
+
+
+
+
+
+###### v3 ######
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 ############ GDP Growth ##########
 Source	Series ID	Direct CSV URL
 World Bank API	NY.GDP.MKTP.KD.ZG	https://api.worldbank.org/v2/country/US/indicator/NY.GDP.MKTP.KD.ZG?format=csv 
